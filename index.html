@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🍞 菜谱 → AnyList</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f6f7f9;
+      color: #1f2937;
+      padding: 28px 16px 60px;
+    }
+    .container { max-width: 720px; margin: 0 auto; }
+    header { text-align: center; margin-bottom: 24px; }
+    header h1 { font-size: 1.75rem; margin: 0 0 6px; color: #111827; }
+    header p { margin: 0; color: #6b7280; font-size: 0.92rem; }
+    .card {
+      background: #fff;
+      border-radius: 14px;
+      padding: 20px;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+      margin-bottom: 16px;
+    }
+    label { display: block; font-weight: 600; font-size: 0.92rem; margin-bottom: 8px; color: #374151; }
+    input[type="text"], textarea {
+      width: 100%;
+      border: 1px solid #d1d5db;
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-size: 0.95rem;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    input[type="text"]:focus, textarea:focus { border-color: #2563eb; }
+    textarea {
+      min-height: 280px;
+      resize: vertical;
+      line-height: 1.55;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.86rem;
+    }
+    .hint { font-size: 0.82rem; color: #6b7280; margin-top: 8px; }
+    .actions { display: flex; gap: 10px; margin-top: 14px; }
+    button {
+      cursor: pointer;
+      border: none;
+      border-radius: 10px;
+      padding: 11px 18px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      transition: opacity 0.15s;
+    }
+    button:hover { opacity: 0.92; }
+    .btn-primary { flex: 1; background: #2563eb; color: #fff; }
+    .btn-secondary { background: #e5e7eb; color: #374151; }
+    .error {
+      background: #fef2f2;
+      color: #b91c1c;
+      border: 1px solid #fecaca;
+      border-radius: 10px;
+      padding: 10px 14px;
+      margin-top: 12px;
+      font-size: 0.88rem;
+      display: none;
+    }
+    .result-card {
+      background: #ecfdf5;
+      border: 1px solid #a7f3d0;
+      border-radius: 14px;
+      padding: 18px 20px;
+      margin-bottom: 16px;
+      display: none;
+    }
+    .result-title { font-weight: 700; color: #065f46; margin-bottom: 10px; }
+    .url-row { display: flex; gap: 8px; align-items: center; }
+    .url-box {
+      flex: 1;
+      background: #fff;
+      border: 1px solid #a7f3d0;
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 0.82rem;
+      color: #065f46;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .btn-copy { background: #059669; color: #fff; padding: 9px 14px; font-size: 0.85rem; }
+    .preview-meta { font-size: 0.82rem; color: #047857; margin-top: 8px; }
+    .history-toggle {
+      width: 100%;
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      color: #374151;
+      text-align: left;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 16px;
+    }
+    .history-list { margin-top: 10px; display: none; }
+    .history-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 12px;
+      border-bottom: 1px solid #f3f4f6;
+      gap: 10px;
+    }
+    .history-item:last-child { border-bottom: none; }
+    .history-info { min-width: 0; flex: 1; }
+    .history-name { font-weight: 600; font-size: 0.92rem; color: #111827; }
+    .history-time { font-size: 0.78rem; color: #9ca3af; }
+    .history-btns { display: flex; gap: 6px; }
+    .btn-mini { padding: 6px 10px; font-size: 0.78rem; border-radius: 7px; background: #f3f4f6; color: #374151; }
+    .btn-mini-del { background: #fee2e2; color: #b91c1c; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🍞 菜谱 → AnyList</h1>
+      <p>粘贴完整食谱，一键生成 AnyList 导入链接（免数据库永久版）</p>
+    </header>
+
+    <div class="card">
+      <label for="recipeTitle">① 菜谱名称</label>
+      <input id="recipeTitle" type="text" placeholder="例如：自制椒盐粉" />
+
+      <label for="recipeText" style="margin-top: 16px;">② 粘贴完整食谱</label>
+      <textarea id="recipeText" placeholder="Prep time: 5 mins
+Cook time: 15 mins
+Total time: 20 mins
+Yield: 2
+# 主料
+200g 面粉
+3个 鸡蛋
+# 调料
+5g 盐
+---
+# 预处理
+> 先将面粉过筛...
+> 将鸡蛋打散加入面粉中搅拌均匀...
+---
+烤箱预热 180°C，烤25分钟"></textarea>
+      <div class="hint">💡 用 --- 分隔：食材 → 步骤 → 备注（支持 # 分组标题、&gt; 多行合并、**加粗** 与 _斜体_）</div>
+
+      <div id="errorBox" class="error"></div>
+
+      <div class="actions">
+        <button id="generateBtn" class="btn-primary">+ ③ 生成 AnyList 导入链接</button>
+        <button id="clearBtn" class="btn-secondary">清空</button>
+      </div>
+    </div>
+
+    <div id="resultCard" class="result-card">
+      <div class="result-title">✅ 菜谱链接已生成！</div>
+      <div class="url-row">
+        <div id="urlBox" class="url-box"></div>
+        <button id="copyBtn" class="btn-copy">复制链接</button>
+        <a id="previewLink" target="_blank" rel="noopener noreferrer" style="text-decoration:none;">
+          <button type="button" class="btn-secondary" style="padding:9px 12px;font-size:0.85rem;">预览</button>
+        </a>
+      </div>
+      <div id="previewMeta" class="preview-meta"></div>
+    </div>
+
+    <div class="card" style="padding: 0; overflow: hidden;">
+      <button id="historyToggle" class="history-toggle" type="button">
+        <span id="historyLabel">历史记录 (0)</span>
+        <span id="historyArrow">▼</span>
+      </button>
+      <div id="historyList" class="history-list"></div>
+    </div>
+  </div>
+
+  <script>
+    const STORAGE_KEY = "anylist_importer_history_v2";
+
+    function parseFullRecipe(text) {
+      const lines = text.split("\n");
+      const result = {
+        prep_time: "", cook_time: "", total_time: "", yield_amount: "",
+        calories: "", protein: "", carbs: "", fat: "", fiber: "", sodium: "",
+        ingredients_text: "", steps_text: "", notes: ""
+      };
+      const ingredientLines = [], stepLines = [], notesLines = [];
+      let section = 0;
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        if (/^-{3,}$/.test(trimmed)) { section++; continue; }
+        if (section >= 2) { notesLines.push(trimmed); continue; }
+        if (section === 1) { stepLines.push(trimmed); continue; }
+
+        let m;
+        if ((m = trimmed.match(/Prep\s*(time)?[^:：]*[:：]\s*(.+)/i))) { result.prep_time = m[2].trim(); continue; }
+        if ((m = trimmed.match(/Cook\s*(time)?[^:：]*[:：]\s*(.+)/i))) { result.cook_time = m[2].trim(); continue; }
+        if ((m = trimmed.match(/Total\s*(time)?[^:：]*[:：]\s*(.+)/i))) { result.total_time = m[2].trim(); continue; }
+        if ((m = trimmed.match(/Yield[^:：]*[:：]\s*(.+)/i))) { result.yield_amount = m[1].trim(); continue; }
+        if (/^Nutrition|^营养/i.test(trimmed)) continue;
+        if ((m = trimmed.match(/Calories?[:：]\s*(\d+)/i))) { result.calories = m[1]; continue; }
+        if ((m = trimmed.match(/Protein[:：]\s*(\d+)/i))) { result.protein = m[1]; continue; }
+        if ((m = trimmed.match(/(?:Carbohydrates?|Carbs?)[:：]\s*(\d+)/i))) { result.carbs = m[1]; continue; }
+        if ((m = trimmed.match(/^Fat[:：]\s*(\d+)/i))) { result.fat = m[1]; continue; }
+        if ((m = trimmed.match(/Fiber[:：]\s*(\d+)/i))) { result.fiber = m[1]; continue; }
+        if ((m = trimmed.match(/Sodium[:：]\s*(\d+)/i))) { result.sodium = m[1]; continue; }
+
+        ingredientLines.push(trimmed);
+      }
+
+      result.ingredients_text = ingredientLines.join("\n");
+      result.steps_text = stepLines.join("\n");
+      result.notes = notesLines.join("\n");
+      return result;
+    }
+
+    function toBase64Url(bytes) {
+      let binary = "";
+      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+      return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    }
+
+    async function encodePayload(obj) {
+      const jsonBytes = new TextEncoder().encode(JSON.stringify(obj));
+      if (typeof CompressionStream !== "undefined") {
+        const cs = new CompressionStream("deflate-raw");
+        const writer = cs.writable.getWriter();
+        writer.write(jsonBytes);
+        writer.close();
+        const compressed = new Uint8Array(await new Response(cs.readable).arrayBuffer());
+        return toBase64Url(compressed);
+      }
+      return toBase64Url(jsonBytes);
+    }
+
+    function getHistory() {
+      try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]"); } catch { return []; }
+    }
+
+    function saveHistory(list) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(list.slice(0, 50)));
+      renderHistory();
+    }
+
+    function renderHistory() {
+      const list = getHistory();
+      document.getElementById("historyLabel").textContent = `历史记录 (${list.length})`;
+      const container = document.getElementById("historyList");
+      if (list.length === 0) {
+        container.innerHTML = `<div style="padding:14px 16px;color:#9ca3af;font-size:0.86rem;">暂无记录</div>`;
+        return;
+      }
+      container.innerHTML = list.map((item, idx) => `
+        <div class="history-item">
+          <div class="history-info">
+            <div class="history-name">${item.title.replace(/</g, "&lt;")}</div>
+            <div class="history-time">${item.time}</div>
+          </div>
+          <div class="history-btns">
+            <button class="btn-mini" onclick="copyHistoryUrl(${idx})">复制</button>
+            <a href="${item.url}" target="_blank" rel="noopener noreferrer"><button class="btn-mini" type="button">打开</button></a>
+            <button class="btn-mini btn-mini-del" onclick="deleteHistory(${idx})">删</button>
+          </div>
+        </div>
+      `).join("");
+    }
+
+    window.copyHistoryUrl = async (idx) => {
+      const item = getHistory()[idx];
+      if (item) await navigator.clipboard.writeText(item.url);
+    };
+    window.deleteHistory = (idx) => {
+      const list = getHistory();
+      list.splice(idx, 1);
+      saveHistory(list);
+    };
+
+    document.getElementById("historyToggle").addEventListener("click", () => {
+      const el = document.getElementById("historyList");
+      const open = el.style.display === "block";
+      el.style.display = open ? "none" : "block";
+      document.getElementById("historyArrow").textContent = open ? "▼" : "▲";
+    });
+
+    document.getElementById("clearBtn").addEventListener("click", () => {
+      document.getElementById("recipeTitle").value = "";
+      document.getElementById("recipeText").value = "";
+      document.getElementById("errorBox").style.display = "none";
+      document.getElementById("resultCard").style.display = "none";
+    });
+
+    document.getElementById("generateBtn").addEventListener("click", async () => {
+      const title = document.getElementById("recipeTitle").value.trim();
+      const text = document.getElementById("recipeText").value.trim();
+      const errBox = document.getElementById("errorBox");
+      errBox.style.display = "none";
+
+      if (!title || !text) {
+        errBox.textContent = "菜谱名称和内容都要填哦";
+        errBox.style.display = "block";
+        return;
+      }
+
+      const parsed = parseFullRecipe(text);
+      if (!parsed.ingredients_text.trim()) {
+        errBox.textContent = "没有识别到食材";
+        errBox.style.display = "block";
+        return;
+      }
+      if (!parsed.steps_text.trim()) {
+        errBox.textContent = "没有识别到步骤（请用 --- 分隔食材与步骤）";
+        errBox.style.display = "block";
+        return;
+      }
+
+      const payload = { title, ...parsed };
+      const encoded = await encodePayload(payload);
+      const url = `${window.location.origin}/api/recipe?d=${encoded}`;
+
+      document.getElementById("urlBox").textContent = url;
+      document.getElementById("previewLink").href = url;
+      const ingCount = parsed.ingredients_text.split("\n").filter(l => l.trim() && !l.trim().startsWith("#")).length;
+      const stepLines = parsed.steps_text.split("\n").filter(l => l.trim()).length;
+      document.getElementById("previewMeta").textContent = `已识别：${ingCount} 项食材 · ${stepLines} 行步骤`;
+      document.getElementById("resultCard").style.display = "block";
+
+      const history = getHistory();
+      history.unshift({ title, url, time: new Date().toLocaleString("zh-CN") });
+      saveHistory(history);
+    });
+
+    document.getElementById("copyBtn").addEventListener("click", async () => {
+      const url = document.getElementById("urlBox").textContent;
+      if (!url) return;
+      await navigator.clipboard.writeText(url);
+      const btn = document.getElementById("copyBtn");
+      btn.textContent = "已复制";
+      setTimeout(() => { btn.textContent = "复制链接"; }, 1800);
+    });
+
+    renderHistory();
+  </script>
+</body>
+</html>
