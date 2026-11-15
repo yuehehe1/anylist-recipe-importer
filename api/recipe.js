@@ -46,7 +46,7 @@ function getIngredientSections(text = "") {
     if (!trimmed) continue;
 
     if (
-      /^(Prep|Cook|Total|Yield)[^a-zA-Z]*[:：]/i.test(trimmed) ||
+      /^(Prep|Cook|Total|Yield|Source|URL)[^a-zA-Z]*[:：]/i.test(trimmed) ||
       /^(Calories?|热量)[^a-zA-Z]*[:：]/i.test(trimmed) ||
       /^(Protein|蛋白质)[^a-zA-Z]*[:：]/i.test(trimmed) ||
       /^(Carbs?|Carbohydrates?|碳水化合物|碳水)[^a-zA-Z]*[:：]/i.test(trimmed) ||
@@ -79,12 +79,6 @@ function getIngredientSections(text = "") {
   return sections.filter((s) => s.items.length > 0);
 }
 
-/**
- * Parse steps:
- * - Lines starting with `#` become section heading steps (`# Title`) so AnyList renders underlined headings
- * - Consecutive lines starting with `>` are merged into ONE single step (with `>` stripped and lines joined by `\n`)
- * - Normal lines become individual steps
- */
 function getMergedSteps(text = "") {
   const rawLines = text.split("\n");
   const steps = [];
@@ -152,6 +146,8 @@ export default function handler(req, res) {
 
     const recipe = decodePayload(d);
     const title = recipe.title || "Untitled Recipe";
+    const sourceName = (recipe.source_name || "").trim();
+    const sourceUrl = (recipe.source_url || "").trim();
     const sections = getIngredientSections(recipe.ingredients_text || "");
     const steps = getMergedSteps(recipe.steps_text || "");
 
@@ -176,6 +172,12 @@ export default function handler(req, res) {
       "@type": "Recipe",
       name: title,
       description: recipe.notes || undefined,
+      url: sourceUrl || undefined,
+      mainEntityOfPage: sourceUrl || undefined,
+      author: sourceName ? { "@type": "Person", name: sourceName } : undefined,
+      publisher: sourceName
+        ? { "@type": "Organization", name: sourceName }
+        : undefined,
       recipeIngredient: recipeIngredientList,
       recipeInstructions: steps.map((step) => ({
         "@type": "HowToStep",
@@ -205,6 +207,8 @@ export default function handler(req, res) {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${escapeHtml(title)} - Recipe</title>
+  ${sourceName ? `<meta property="og:site_name" content="${escapeHtml(sourceName)}">` : ""}
+  ${sourceUrl ? `<meta property="og:url" content="${escapeHtml(sourceUrl)}"><link rel="canonical" href="${escapeHtml(sourceUrl)}">` : ""}
   <script type="application/ld+json">${JSON.stringify(jsonLd)}</script>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; line-height: 1.65; color: #222; max-width: 760px; margin: 0 auto; padding: 36px 20px; background: #fff; }
@@ -224,6 +228,7 @@ export default function handler(req, res) {
     ${recipe.cook_time ? `<span><b>烹饪:</b> ${escapeHtml(recipe.cook_time)}</span>` : ""}
     ${recipe.total_time ? `<span><b>总计:</b> ${escapeHtml(recipe.total_time)}</span>` : ""}
     ${recipe.yield_amount ? `<span><b>份量:</b> ${escapeHtml(recipe.yield_amount)}</span>` : ""}
+    ${sourceName || sourceUrl ? `<span><b>来源:</b> ${sourceUrl ? `<a href="${escapeHtml(sourceUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(sourceName || sourceUrl)}</a>` : escapeHtml(sourceName)}</span>` : ""}
   </div>
   <section>
     <h2>Ingredients 食材</h2>
