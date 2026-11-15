@@ -161,6 +161,11 @@ export default function handler(req, res) {
       }
     }
 
+    const sourceLine = (sourceName || sourceUrl)
+      ? `原方来源：${[sourceName, sourceUrl].filter(Boolean).join(" ")}`
+      : "";
+    const fullNotes = [sourceLine, recipe.notes].filter(Boolean).join("\n");
+
     const toIsoDuration = (val) => {
       if (!val) return undefined;
       const digits = String(val).replace(/\D/g, "");
@@ -171,7 +176,7 @@ export default function handler(req, res) {
       "@context": "https://schema.org/",
       "@type": "Recipe",
       name: title,
-      description: recipe.notes || undefined,
+      description: fullNotes || undefined,
       url: sourceUrl || undefined,
       mainEntityOfPage: sourceUrl || undefined,
       author: sourceName ? { "@type": "Person", name: sourceName } : undefined,
