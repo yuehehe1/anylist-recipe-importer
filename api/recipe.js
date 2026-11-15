@@ -177,8 +177,6 @@ export default function handler(req, res) {
       "@type": "Recipe",
       name: title,
       description: fullNotes || undefined,
-      url: sourceUrl || undefined,
-      mainEntityOfPage: sourceUrl || undefined,
       author: sourceName ? { "@type": "Person", name: sourceName } : undefined,
       publisher: sourceName
         ? { "@type": "Organization", name: sourceName }
@@ -212,8 +210,6 @@ export default function handler(req, res) {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${escapeHtml(title)} - Recipe</title>
-  ${sourceName ? `<meta property="og:site_name" content="${escapeHtml(sourceName)}">` : ""}
-  ${sourceUrl ? `<meta property="og:url" content="${escapeHtml(sourceUrl)}"><link rel="canonical" href="${escapeHtml(sourceUrl)}">` : ""}
   <script type="application/ld+json">${JSON.stringify(jsonLd)}</script>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; line-height: 1.65; color: #222; max-width: 760px; margin: 0 auto; padding: 36px 20px; background: #fff; }
