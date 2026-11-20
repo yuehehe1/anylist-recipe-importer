@@ -52,8 +52,11 @@ function normalizeImageUrl(raw = "") {
   return /^https?:\/\//i.test(cleaned) ? cleaned : "";
 }
 
-const MOBILE_UA =
+const IOS_UA =
   "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
+
+const ANDROID_UA =
+  "Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
 
 function pickBestUrl(list) {
   if (!Array.isArray(list) || list.length === 0) return "";
@@ -61,35 +64,39 @@ function pickBestUrl(list) {
   return normalizeImageUrl(jpg || list[0]);
 }
 
-async function fetchDouyinCover(pageUrl) {
+async function fetchDouyinCover(pageUrl, dbg) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 5000);
+  const timer = setTimeout(() => controller.abort(), 6000);
   try {
     let awemeId = "";
-    const directMatch = pageUrl.match(/(?:video|note)\/(\d+)|modal_id=(\d+)/i);
+    const directMatch = pageUrl.match(/(?:video|note|slides)\/(\d+)|modal_id=(\d+)/i);
     if (directMatch) {
       awemeId = directMatch[1] || directMatch[2];
     } else {
       const r1 = await fetch(pageUrl, {
         redirect: "manual",
         signal: controller.signal,
-        headers: { "User-Agent": MOBILE_UA },
+        headers: { "User-Agent": ANDROID_UA },
       });
+      dbg.r1Status = r1.status;
       const loc = r1.headers.get("location") || "";
-      const m = loc.match(/(?:video|note)\/(\d+)|modal_id=(\d+)/i);
+      dbg.r1Location = loc.slice(0, 120);
+      const m = loc.match(/(?:video|note|slides)\/(\d+)|modal_id=(\d+)/i);
       if (m) {
         awemeId = m[1] || m[2];
       } else {
         const rFollow = await fetch(pageUrl, {
           redirect: "follow",
           signal: controller.signal,
-          headers: { "User-Agent": MOBILE_UA },
+          headers: { "User-Agent": ANDROID_UA },
         });
-        const m2 = (rFollow.url || "").match(/(?:video|note)\/(\d+)|modal_id=(\d+)/i);
+        dbg.rFollowUrl = (rFollow.url || "").slice(0, 120);
+        const m2 = (rFollow.url || "").match(/(?:video|note|slides)\/(\d+)|modal_id=(\d+)/i);
         if (m2) awemeId = m2[1] || m2[2];
       }
     }
 
+    dbg.awemeId = awemeId;
     if (!awemeId) return "";
 
     const shareUrl = `https://www.iesdouyin.com/share/video/${awemeId}/`;
@@ -97,19 +104,25 @@ async function fetchDouyinCover(pageUrl) {
       redirect: "follow",
       signal: controller.signal,
       headers: {
-        "User-Agent": MOBILE_UA,
+        "User-Agent": ANDROID_UA,
         Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "zh-CN,zh;q=0.9",
       },
     });
+    dbg.r2Status = r2.status;
+    dbg.r2Url = (r2.url || "").slice(0, 120);
     if (!r2.ok) return "";
     const html = await r2.text();
+    dbg.htmlLength = html.length;
+    dbg.hasRouterData = html.includes("_ROUTER_DATA");
+    dbg.hasDouyinPic = html.includes("douyinpic.com");
 
-    const routerMatch = html.match(/window\._ROUTER_DATA\s*=\s*(\{[\s\S]*?\})\s*<\/script>/i);
+    const routerMatch = html.match(/window\._ROUTER_DATA\s*=\s*(\{[\s\S]*?\})\s*;?\s*<\/script>/i);
     if (routerMatch && routerMatch[1]) {
       try {
         const data = JSON.parse(routerMatch[1]);
         const loader = data?.loaderData || {};
+        dbg.loaderKeys = Object.keys(loader);
         for (const key of Object.keys(loader)) {
           const item = loader[key]?.videoInfoRes?.item_list?.[0];
           if (item) {
@@ -117,11 +130,14 @@ async function fetchDouyinCover(pageUrl) {
               pickBestUrl(item?.video?.origin_cover?.url_list) ||
               pickBestUrl(item?.video?.cover?.url_list) ||
               pickBestUrl(item?.images?.[0]?.url_list);
-            if (cover) return cover;
+            if (cover) {
+              dbg.matchedBy = "routerData";
+              return cover;
+            }
           }
         }
-      } catch {
-        // fall through to regex fallback
+      } catch (e) {
+        dbg.jsonParseErr = e?.message || "parse_error";
       }
     }
 
@@ -134,23 +150,30 @@ async function fetchDouyinCover(pageUrl) {
       const m = html.match(re);
       if (m && m[1]) {
         const candidate = normalizeImageUrl(m[1]);
-        if (candidate) return candidate;
+        if (candidate) {
+          dbg.matchedBy = "fallbackRegex";
+          return candidate;
+        }
       }
     }
     return "";
-  } catch {
+  } catch (e) {
+    dbg.error = e?.message || "fetch_error";
     return "";
   } finally {
     clearTimeout(timer);
   }
 }
 
-async function fetchCoverImageFromSource(pageUrl) {
+async function fetchCoverImageFromSource(pageUrl, dbg) {
   if (!pageUrl || !/^https?:\/\//i.test(pageUrl)) return "";
   if (/douyin\.com|iesdouyin\.com/i.test(pageUrl)) {
-    return await fetchDouyinCover(pageUrl);
+    dbg.platform = "douyin";
+    return await fetchDouyinCover(pageUrl, dbg);
   }
 
+  // 小红书及其他平台逻辑（保持原有已验证可用逻辑不动）
+  dbg.platform = "other";
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 4500);
   try {
@@ -158,11 +181,12 @@ async function fetchCoverImageFromSource(pageUrl) {
       redirect: "follow",
       signal: controller.signal,
       headers: {
-        "User-Agent": MOBILE_UA,
+        "User-Agent": IOS_UA,
         Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "zh-CN,zh;q=0.9",
       },
     });
+    dbg.status = resp.status;
     if (!resp.ok) return "";
     const html = await resp.text();
 
@@ -182,7 +206,8 @@ async function fetchCoverImageFromSource(pageUrl) {
       }
     }
     return "";
-  } catch {
+  } catch (e) {
+    dbg.error = e?.message || "fetch_error";
     return "";
   } finally {
     clearTimeout(timer);
@@ -294,6 +319,7 @@ export default async function handler(req, res) {
     const proto = req.headers["x-forwarded-proto"] || "https";
     const url = new URL(req.url, `${proto}://${host}`);
     const d = url.searchParams.get("d");
+    const isDebug = url.searchParams.get("debug") === "1";
     if (!d) {
       res.status(400).send("Missing recipe data (?d=...)");
       return;
@@ -304,9 +330,10 @@ export default async function handler(req, res) {
     const sourceName = (recipe.source_name || "").trim();
     const sourceUrl = (recipe.source_url || "").trim();
 
+    const dbg = { sourceUrl };
     let rawImageUrl = normalizeImageUrl(recipe.image_url || "");
     if (!rawImageUrl && sourceUrl) {
-      rawImageUrl = await fetchCoverImageFromSource(sourceUrl);
+      rawImageUrl = await fetchCoverImageFromSource(sourceUrl, dbg);
     }
 
     const needsProxy = /xhscdn\.com|douyinpic\.com|byteimg\.com|douyin\.com/i.test(rawImageUrl);
@@ -315,6 +342,23 @@ export default async function handler(req, res) {
         ? `${proto}://${host}/api/img?u=${encodeURIComponent(rawImageUrl)}`
         : rawImageUrl
       : "";
+
+    if (isDebug) {
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.status(200).send(
+        JSON.stringify(
+          {
+            title,
+            dbg,
+            rawImageUrl,
+            finalImageUrl,
+          },
+          null,
+          2
+        )
+      );
+      return;
+    }
 
     const sections = getIngredientSections(recipe.ingredients_text || "");
     const steps = getMergedSteps(recipe.steps_text || "");
