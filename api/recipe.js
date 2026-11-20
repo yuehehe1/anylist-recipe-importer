@@ -46,7 +46,7 @@ function getIngredientSections(text = "") {
     if (!trimmed) continue;
 
     if (
-      /^(Prep|Cook|Total|Yield|Source|URL)[^a-zA-Z]*[:：]/i.test(trimmed) ||
+      /^(Prep|Cook|Total|Yield|Source|URL|Image)[^a-zA-Z]*[:：]/i.test(trimmed) ||
       /^(Calories?|热量)[^a-zA-Z]*[:：]/i.test(trimmed) ||
       /^(Protein|蛋白质)[^a-zA-Z]*[:：]/i.test(trimmed) ||
       /^(Carbs?|Carbohydrates?|碳水化合物|碳水)[^a-zA-Z]*[:：]/i.test(trimmed) ||
@@ -148,6 +148,7 @@ export default function handler(req, res) {
     const title = recipe.title || "Untitled Recipe";
     const sourceName = (recipe.source_name || "").trim();
     const sourceUrl = (recipe.source_url || "").trim();
+    const imageUrl = (recipe.image_url || "").trim();
     const sections = getIngredientSections(recipe.ingredients_text || "");
     const steps = getMergedSteps(recipe.steps_text || "");
 
@@ -176,6 +177,7 @@ export default function handler(req, res) {
       "@context": "https://schema.org/",
       "@type": "Recipe",
       name: title,
+      image: imageUrl ? [imageUrl] : undefined,
       description: fullNotes || undefined,
       author: sourceName ? { "@type": "Person", name: sourceName } : undefined,
       publisher: sourceName
@@ -210,10 +212,12 @@ export default function handler(req, res) {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${escapeHtml(title)} - Recipe</title>
+  ${imageUrl ? `<meta property="og:image" content="${escapeHtml(imageUrl)}">` : ""}
   <script type="application/ld+json">${JSON.stringify(jsonLd)}</script>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; line-height: 1.65; color: #222; max-width: 760px; margin: 0 auto; padding: 36px 20px; background: #fff; }
     h1 { font-size: 2rem; margin-bottom: 0.5rem; }
+    .hero { width: 100%; max-height: 420px; object-fit: cover; border-radius: 12px; margin: 12px 0 18px; }
     .meta { display: flex; gap: 16px; color: #666; font-size: 0.9rem; margin-bottom: 1.5rem; flex-wrap: wrap; border-bottom: 1px solid #eee; padding-bottom: 0.8rem; }
     h2 { border-bottom: 2px solid #f0f0f0; padding-bottom: 8px; margin-top: 28px; font-size: 1.25rem; }
     h3 { color: #0284c7; margin-top: 20px; font-size: 1.05rem; border-bottom: 1px solid #bae6fd; padding-bottom: 4px; display: inline-block; }
@@ -224,6 +228,7 @@ export default function handler(req, res) {
 </head>
 <body>
   <h1>${escapeHtml(title)}</h1>
+  ${imageUrl ? `<img class="hero" src="${escapeHtml(imageUrl)}" alt="${escapeHtml(title)}" referrerpolicy="no-referrer" />` : ""}
   <div class="meta">
     ${recipe.prep_time ? `<span><b>准备:</b> ${escapeHtml(recipe.prep_time)}</span>` : ""}
     ${recipe.cook_time ? `<span><b>烹饪:</b> ${escapeHtml(recipe.cook_time)}</span>` : ""}
