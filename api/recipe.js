@@ -36,6 +36,62 @@ function markdownToHtmlInline(text = "") {
     .replace(/(^|\s)_([^_\n]+?)_(\s|$|[，。；！？、.,;!?])/g, "$1<em>$2</em>$3");
 }
 
+function normalizeImageUrl(raw = "") {
+  const cleaned = String(raw)
+    .replace(/&amp;/g, "&")
+    .replace(/\\u002F/gi, "/")
+    .replace(/\\\//g, "/")
+    .trim();
+  if (!cleaned) return "";
+  if (cleaned.startsWith("//")) return "https:" + cleaned;
+  if (cleaned.startsWith("http://") && /xhscdn\.com|douyinpic\.com|byteimg\.com/i.test(cleaned)) {
+    return cleaned.replace(/^http:\/\//i, "https://");
+  }
+  return /^https?:\/\//i.test(cleaned) ? cleaned : "";
+}
+
+async function fetchCoverImageFromSource(pageUrl) {
+  if (!pageUrl || !/^https?:\/\//i.test(pageUrl)) return "";
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 3500);
+  try {
+    const resp = await fetch(pageUrl, {
+      redirect: "follow",
+      signal: controller.signal,
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "zh-CN,zh;q=0.9",
+      },
+    });
+    if (!resp.ok) return "";
+    const html = await resp.text();
+
+    const patterns = [
+      /<meta[^>]+(?:property|name)=["']og:image["'][^>]+content=["']([^"']+)["']/i,
+      /<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']og:image["']/i,
+      /<meta[^>]+(?:property|name)=["']twitter:image["'][^>]+content=["']([^"']+)["']/i,
+      /"cover"\s*:\s*\{[^}]*"url_list"\s*:\s*\[\s*"([^"]+)"/i,
+      /"urlDefault"\s*:\s*"(https?:\\?\/\\?\/sns-webpic[^"]+)"/i,
+      /(https?:\/\/sns-webpic[^"'\s\\<>]+)/i,
+    ];
+
+    for (const re of patterns) {
+      const m = html.match(re);
+      if (m && m[1]) {
+        const candidate = normalizeImageUrl(m[1]);
+        if (candidate) return candidate;
+      }
+    }
+    return "";
+  } catch {
+    return "";
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function getIngredientSections(text = "") {
   const lines = text.split("\n");
   const sections = [];
@@ -135,9 +191,11 @@ function getMergedSteps(text = "") {
   return steps;
 }
 
-export default function handler(req, res) {
+export default async function handler(req, res) {
   try {
-    const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+    const host = req.headers.host || "anylist-recipe-importer.vercel.app";
+    const proto = req.headers["x-forwarded-proto"] || "https";
+    const url = new URL(req.url, `${proto}://${host}`);
     const d = url.searchParams.get("d");
     if (!d) {
       res.status(400).send("Missing recipe data (?d=...)");
@@ -148,7 +206,19 @@ export default function handler(req, res) {
     const title = recipe.title || "Untitled Recipe";
     const sourceName = (recipe.source_name || "").trim();
     const sourceUrl = (recipe.source_url || "").trim();
-    const imageUrl = (recipe.image_url || "").trim();
+
+    let rawImageUrl = normalizeImageUrl(recipe.image_url || "");
+    if (!rawImageUrl && sourceUrl) {
+      rawImageUrl = await fetchCoverImageFromSource(sourceUrl);
+    }
+
+    const needsProxy = /xhscdn\.com|douyinpic\.com|byteimg\.com|douyin\.com/i.test(rawImageUrl);
+    const finalImageUrl = rawImageUrl
+      ? needsProxy
+        ? `${proto}://${host}/api/img?u=${encodeURIComponent(rawImageUrl)}`
+        : rawImageUrl
+      : "";
+
     const sections = getIngredientSections(recipe.ingredients_text || "");
     const steps = getMergedSteps(recipe.steps_text || "");
 
@@ -177,7 +247,7 @@ export default function handler(req, res) {
       "@context": "https://schema.org/",
       "@type": "Recipe",
       name: title,
-      image: imageUrl ? [imageUrl] : undefined,
+      image: finalImageUrl ? [finalImageUrl] : undefined,
       description: fullNotes || undefined,
       author: sourceName ? { "@type": "Person", name: sourceName } : undefined,
       publisher: sourceName
@@ -212,7 +282,7 @@ export default function handler(req, res) {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${escapeHtml(title)} - Recipe</title>
-  ${imageUrl ? `<meta property="og:image" content="${escapeHtml(imageUrl)}">` : ""}
+  ${finalImageUrl ? `<meta property="og:image" content="${escapeHtml(finalImageUrl)}">` : ""}
   <script type="application/ld+json">${JSON.stringify(jsonLd)}</script>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; line-height: 1.65; color: #222; max-width: 760px; margin: 0 auto; padding: 36px 20px; background: #fff; }
@@ -228,7 +298,7 @@ export default function handler(req, res) {
 </head>
 <body>
   <h1>${escapeHtml(title)}</h1>
-  ${imageUrl ? `<img class="hero" src="${escapeHtml(imageUrl)}" alt="${escapeHtml(title)}" referrerpolicy="no-referrer" />` : ""}
+  ${finalImageUrl ? `<img class="hero" src="${escapeHtml(finalImageUrl)}" alt="${escapeHtml(title)}" referrerpolicy="no-referrer" />` : ""}
   <div class="meta">
     ${recipe.prep_time ? `<span><b>准备:</b> ${escapeHtml(recipe.prep_time)}</span>` : ""}
     ${recipe.cook_time ? `<span><b>烹饪:</b> ${escapeHtml(recipe.cook_time)}</span>` : ""}
