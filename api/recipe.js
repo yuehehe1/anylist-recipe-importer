@@ -39,7 +39,9 @@ function markdownToHtmlInline(text = "") {
 function normalizeImageUrl(raw = "") {
   const cleaned = String(raw)
     .replace(/&amp;/g, "&")
+    .replace(/\\u0026/gi, "&")
     .replace(/\\u002F/gi, "/")
+    .replace(/\\u003D/gi, "=")
     .replace(/\\\//g, "/")
     .trim();
   if (!cleaned) return "";
@@ -53,7 +55,7 @@ function normalizeImageUrl(raw = "") {
 async function fetchCoverImageFromSource(pageUrl) {
   if (!pageUrl || !/^https?:\/\//i.test(pageUrl)) return "";
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 3500);
+  const timer = setTimeout(() => controller.abort(), 4500);
   try {
     const resp = await fetch(pageUrl, {
       redirect: "follow",
@@ -72,8 +74,10 @@ async function fetchCoverImageFromSource(pageUrl) {
       /<meta[^>]+(?:property|name)=["']og:image["'][^>]+content=["']([^"']+)["']/i,
       /<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']og:image["']/i,
       /<meta[^>]+(?:property|name)=["']twitter:image["'][^>]+content=["']([^"']+)["']/i,
+      /"origin_cover"\s*:\s*\{[^}]*"url_list"\s*:\s*\[\s*"([^"]+)"/i,
       /"cover"\s*:\s*\{[^}]*"url_list"\s*:\s*\[\s*"([^"]+)"/i,
       /"urlDefault"\s*:\s*"(https?:\\?\/\\?\/sns-webpic[^"]+)"/i,
+      /(https?:\\?\/\\?\/p\d+[^"'\s\\<>]*douyinpic\.com[^"'\s<>]+)/i,
       /(https?:\/\/sns-webpic[^"'\s\\<>]+)/i,
     ];
 
