@@ -52,8 +52,105 @@ function normalizeImageUrl(raw = "") {
   return /^https?:\/\//i.test(cleaned) ? cleaned : "";
 }
 
+const MOBILE_UA =
+  "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
+
+function pickBestUrl(list) {
+  if (!Array.isArray(list) || list.length === 0) return "";
+  const jpg = list.find((u) => typeof u === "string" && /\.jpe?g(\?|$)/i.test(u));
+  return normalizeImageUrl(jpg || list[0]);
+}
+
+async function fetchDouyinCover(pageUrl) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
+  try {
+    let awemeId = "";
+    const directMatch = pageUrl.match(/(?:video|note)\/(\d+)|modal_id=(\d+)/i);
+    if (directMatch) {
+      awemeId = directMatch[1] || directMatch[2];
+    } else {
+      const r1 = await fetch(pageUrl, {
+        redirect: "manual",
+        signal: controller.signal,
+        headers: { "User-Agent": MOBILE_UA },
+      });
+      const loc = r1.headers.get("location") || "";
+      const m = loc.match(/(?:video|note)\/(\d+)|modal_id=(\d+)/i);
+      if (m) {
+        awemeId = m[1] || m[2];
+      } else {
+        const rFollow = await fetch(pageUrl, {
+          redirect: "follow",
+          signal: controller.signal,
+          headers: { "User-Agent": MOBILE_UA },
+        });
+        const m2 = (rFollow.url || "").match(/(?:video|note)\/(\d+)|modal_id=(\d+)/i);
+        if (m2) awemeId = m2[1] || m2[2];
+      }
+    }
+
+    if (!awemeId) return "";
+
+    const shareUrl = `https://www.iesdouyin.com/share/video/${awemeId}/`;
+    const r2 = await fetch(shareUrl, {
+      redirect: "follow",
+      signal: controller.signal,
+      headers: {
+        "User-Agent": MOBILE_UA,
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "zh-CN,zh;q=0.9",
+      },
+    });
+    if (!r2.ok) return "";
+    const html = await r2.text();
+
+    const routerMatch = html.match(/window\._ROUTER_DATA\s*=\s*(\{[\s\S]*?\})\s*<\/script>/i);
+    if (routerMatch && routerMatch[1]) {
+      try {
+        const data = JSON.parse(routerMatch[1]);
+        const loader = data?.loaderData || {};
+        for (const key of Object.keys(loader)) {
+          const item = loader[key]?.videoInfoRes?.item_list?.[0];
+          if (item) {
+            const cover =
+              pickBestUrl(item?.video?.origin_cover?.url_list) ||
+              pickBestUrl(item?.video?.cover?.url_list) ||
+              pickBestUrl(item?.images?.[0]?.url_list);
+            if (cover) return cover;
+          }
+        }
+      } catch {
+        // fall through to regex fallback
+      }
+    }
+
+    const fallbackPatterns = [
+      /"origin_cover"\s*:\s*\{[^}]*"url_list"\s*:\s*\[\s*"([^"]+)"/i,
+      /"cover"\s*:\s*\{[^}]*"url_list"\s*:\s*\[\s*"([^"]+)"/i,
+      /(https?:\\?\/\\?\/p\d+[^"'\s\\<>]*douyinpic\.com[^"'\s<>]+)/i,
+    ];
+    for (const re of fallbackPatterns) {
+      const m = html.match(re);
+      if (m && m[1]) {
+        const candidate = normalizeImageUrl(m[1]);
+        if (candidate) return candidate;
+      }
+    }
+    return "";
+  } catch {
+    return "";
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function fetchCoverImageFromSource(pageUrl) {
   if (!pageUrl || !/^https?:\/\//i.test(pageUrl)) return "";
+  if (/douyin\.com|iesdouyin\.com/i.test(pageUrl)) {
+    return await fetchDouyinCover(pageUrl);
+  }
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 4500);
   try {
@@ -61,8 +158,7 @@ async function fetchCoverImageFromSource(pageUrl) {
       redirect: "follow",
       signal: controller.signal,
       headers: {
-        "User-Agent":
-          "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+        "User-Agent": MOBILE_UA,
         Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "zh-CN,zh;q=0.9",
       },
@@ -74,10 +170,7 @@ async function fetchCoverImageFromSource(pageUrl) {
       /<meta[^>]+(?:property|name)=["']og:image["'][^>]+content=["']([^"']+)["']/i,
       /<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']og:image["']/i,
       /<meta[^>]+(?:property|name)=["']twitter:image["'][^>]+content=["']([^"']+)["']/i,
-      /"origin_cover"\s*:\s*\{[^}]*"url_list"\s*:\s*\[\s*"([^"]+)"/i,
-      /"cover"\s*:\s*\{[^}]*"url_list"\s*:\s*\[\s*"([^"]+)"/i,
       /"urlDefault"\s*:\s*"(https?:\\?\/\\?\/sns-webpic[^"]+)"/i,
-      /(https?:\\?\/\\?\/p\d+[^"'\s\\<>]*douyinpic\.com[^"'\s<>]+)/i,
       /(https?:\/\/sns-webpic[^"'\s\\<>]+)/i,
     ];
 
