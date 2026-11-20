@@ -46,7 +46,7 @@ function normalizeImageUrl(raw = "") {
     .trim();
   if (!cleaned) return "";
   if (cleaned.startsWith("//")) return "https:" + cleaned;
-  if (cleaned.startsWith("http://") && /xhscdn\.com|douyinpic\.com|byteimg\.com/i.test(cleaned)) {
+  if (cleaned.startsWith("http://") && /xhscdn\.com|douyinpic\.com|byteimg\.com|snssdk\.com/i.test(cleaned)) {
     return cleaned.replace(/^http:\/\//i, "https://");
   }
   return /^https?:\/\//i.test(cleaned) ? cleaned : "";
@@ -68,10 +68,14 @@ async function fetchDouyinCover(pageUrl, dbg) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 6000);
   try {
-    let awemeId = "";
+    let targetShareUrl = "";
     const directMatch = pageUrl.match(/(?:video|note|slides)\/(\d+)|modal_id=(\d+)/i);
     if (directMatch) {
-      awemeId = directMatch[1] || directMatch[2];
+      const awemeId = directMatch[1] || directMatch[2];
+      dbg.awemeId = awemeId;
+      targetShareUrl = /iesdouyin\.com\/share\//i.test(pageUrl)
+        ? pageUrl
+        : `https://www.iesdouyin.com/share/video/${awemeId}/?from_ssr=1`;
     } else {
       const r1 = await fetch(pageUrl, {
         redirect: "manual",
@@ -80,27 +84,22 @@ async function fetchDouyinCover(pageUrl, dbg) {
       });
       dbg.r1Status = r1.status;
       const loc = r1.headers.get("location") || "";
-      dbg.r1Location = loc.slice(0, 120);
-      const m = loc.match(/(?:video|note|slides)\/(\d+)|modal_id=(\d+)/i);
-      if (m) {
-        awemeId = m[1] || m[2];
+      dbg.r1Location = loc;
+      if (loc && /iesdouyin\.com\/share\//i.test(loc)) {
+        targetShareUrl = loc;
       } else {
-        const rFollow = await fetch(pageUrl, {
-          redirect: "follow",
-          signal: controller.signal,
-          headers: { "User-Agent": ANDROID_UA },
-        });
-        dbg.rFollowUrl = (rFollow.url || "").slice(0, 120);
-        const m2 = (rFollow.url || "").match(/(?:video|note|slides)\/(\d+)|modal_id=(\d+)/i);
-        if (m2) awemeId = m2[1] || m2[2];
+        const m = loc.match(/(?:video|note|slides)\/(\d+)|modal_id=(\d+)/i);
+        if (m) {
+          const awemeId = m[1] || m[2];
+          dbg.awemeId = awemeId;
+          targetShareUrl = `https://www.iesdouyin.com/share/video/${awemeId}/?from_ssr=1`;
+        }
       }
     }
 
-    dbg.awemeId = awemeId;
-    if (!awemeId) return "";
+    if (!targetShareUrl) return "";
 
-    const shareUrl = `https://www.iesdouyin.com/share/video/${awemeId}/`;
-    const r2 = await fetch(shareUrl, {
+    const r2 = await fetch(targetShareUrl, {
       redirect: "follow",
       signal: controller.signal,
       headers: {
@@ -110,12 +109,10 @@ async function fetchDouyinCover(pageUrl, dbg) {
       },
     });
     dbg.r2Status = r2.status;
-    dbg.r2Url = (r2.url || "").slice(0, 120);
     if (!r2.ok) return "";
     const html = await r2.text();
     dbg.htmlLength = html.length;
     dbg.hasRouterData = html.includes("_ROUTER_DATA");
-    dbg.hasDouyinPic = html.includes("douyinpic.com");
 
     const routerMatch = html.match(/window\._ROUTER_DATA\s*=\s*(\{[\s\S]*?\})\s*;?\s*<\/script>/i);
     if (routerMatch && routerMatch[1]) {
@@ -124,15 +121,26 @@ async function fetchDouyinCover(pageUrl, dbg) {
         const loader = data?.loaderData || {};
         dbg.loaderKeys = Object.keys(loader);
         for (const key of Object.keys(loader)) {
-          const item = loader[key]?.videoInfoRes?.item_list?.[0];
-          if (item) {
-            const cover =
-              pickBestUrl(item?.video?.origin_cover?.url_list) ||
-              pickBestUrl(item?.video?.cover?.url_list) ||
-              pickBestUrl(item?.images?.[0]?.url_list);
-            if (cover) {
-              dbg.matchedBy = "routerData";
-              return cover;
+          const pageObj = loader[key];
+          if (pageObj && pageObj.videoInfoRes) {
+            dbg.itemListLen = Array.isArray(pageObj.videoInfoRes.item_list)
+              ? pageObj.videoInfoRes.item_list.length
+              : 0;
+            dbg.filterListLen = Array.isArray(pageObj.videoInfoRes.filter_list)
+              ? pageObj.videoInfoRes.filter_list.length
+              : 0;
+            dbg.statusCode = pageObj.videoInfoRes.status_code;
+            const item = pageObj.videoInfoRes.item_list?.[0];
+            if (item) {
+              const cover =
+                pickBestUrl(item?.video?.origin_cover?.url_list) ||
+                pickBestUrl(item?.video?.cover?.url_list) ||
+                pickBestUrl(item?.video?.dynamic_cover?.url_list) ||
+                pickBestUrl(item?.images?.[0]?.url_list);
+              if (cover) {
+                dbg.matchedBy = "routerData";
+                return cover;
+              }
             }
           }
         }
@@ -144,7 +152,7 @@ async function fetchDouyinCover(pageUrl, dbg) {
     const fallbackPatterns = [
       /"origin_cover"\s*:\s*\{[^}]*"url_list"\s*:\s*\[\s*"([^"]+)"/i,
       /"cover"\s*:\s*\{[^}]*"url_list"\s*:\s*\[\s*"([^"]+)"/i,
-      /(https?:\\?\/\\?\/p\d+[^"'\s\\<>]*douyinpic\.com[^"'\s<>]+)/i,
+      /(https?:\\?\/\\?\/p\d+[^"'\s\\<>]*(?:douyinpic|byteimg)\.com[^"'\s<>]+)/i,
     ];
     for (const re of fallbackPatterns) {
       const m = html.match(re);
@@ -336,7 +344,7 @@ export default async function handler(req, res) {
       rawImageUrl = await fetchCoverImageFromSource(sourceUrl, dbg);
     }
 
-    const needsProxy = /xhscdn\.com|douyinpic\.com|byteimg\.com|douyin\.com/i.test(rawImageUrl);
+    const needsProxy = /xhscdn\.com|douyinpic\.com|byteimg\.com|snssdk\.com|douyin\.com/i.test(rawImageUrl);
     const finalImageUrl = rawImageUrl
       ? needsProxy
         ? `${proto}://${host}/api/img?u=${encodeURIComponent(rawImageUrl)}`
