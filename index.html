@@ -59,8 +59,12 @@
         </div>
         <div>
           <label for="sourceUrl">原方链接（选填）</label>
-          <input id="sourceUrl" type="text" placeholder="例如：https://xhslink.com/..." />
+          <input id="sourceUrl" type="text" placeholder="例如：https://xhslink.cn/..." />
         </div>
+      </div>
+      <div style="margin-top: 14px;">
+        <label for="imageUrl">封面图链接（选填）</label>
+        <input id="imageUrl" type="text" placeholder="例如：https://.../cover.jpg（不填则无图）" />
       </div>
       <label for="recipeText" style="margin-top: 16px;">② 粘贴完整食谱</label>
       <textarea id="recipeText" placeholder="Prep time: 5 mins&#10;Cook time: 15 mins&#10;Total time: 20 mins&#10;Yield: 2&#10;# 主料&#10;200g 面粉&#10;3个 鸡蛋&#10;# 调料&#10;5g 盐&#10;---&#10;# 预处理&#10;> 先将面粉过筛...&#10;> 将鸡蛋打散加入面粉中搅拌均匀...&#10;---&#10;烤箱预热 180°C，烤25分钟"></textarea>
@@ -89,7 +93,7 @@
     const STORAGE_KEY = "anylist_importer_history_v2";
     function parseFullRecipe(text) {
       const lines = text.split("\n");
-      const result = { prep_time: "", cook_time: "", total_time: "", yield_amount: "", source_name: "", source_url: "", calories: "", protein: "", carbs: "", fat: "", fiber: "", sodium: "", ingredients_text: "", steps_text: "", notes: "" };
+      const result = { prep_time: "", cook_time: "", total_time: "", yield_amount: "", source_name: "", source_url: "", image_url: "", calories: "", protein: "", carbs: "", fat: "", fiber: "", sodium: "", ingredients_text: "", steps_text: "", notes: "" };
       const ingredientLines = [], stepLines = [], notesLines = [];
       let section = 0;
       for (const line of lines) {
@@ -105,6 +109,7 @@
         if ((m = trimmed.match(/Yield[^:：]*[:：]\s*(.+)/i))) { result.yield_amount = m[1].trim(); continue; }
         if ((m = trimmed.match(/^(?:Source|来源)[^:：]*[:：]\s*(.+)/i))) { result.source_name = m[1].trim(); continue; }
         if ((m = trimmed.match(/^(?:Source\s*URL|Recipe\s*URL|URL|链接)[^:：]*[:：]\s*(.+)/i))) { result.source_url = m[1].trim(); continue; }
+        if ((m = trimmed.match(/^(?:Image\s*URL|Image|封面图|图片)[^:：]*[:：]\s*(.+)/i))) { result.image_url = m[1].trim(); continue; }
         if (/^Nutrition|^营养/i.test(trimmed)) continue;
         if ((m = trimmed.match(/Calories?[:：]\s*(\d+)/i))) { result.calories = m[1]; continue; }
         if ((m = trimmed.match(/Protein[:：]\s*(\d+)/i))) { result.protein = m[1]; continue; }
@@ -157,6 +162,7 @@
       document.getElementById("recipeTitle").value = "";
       document.getElementById("sourceName").value = "";
       document.getElementById("sourceUrl").value = "";
+      document.getElementById("imageUrl").value = "";
       document.getElementById("recipeText").value = "";
       document.getElementById("errorBox").style.display = "none";
       document.getElementById("resultCard").style.display = "none";
@@ -165,6 +171,7 @@
       const title = document.getElementById("recipeTitle").value.trim();
       const sName = document.getElementById("sourceName").value.trim();
       const sUrl = document.getElementById("sourceUrl").value.trim();
+      const iUrl = document.getElementById("imageUrl").value.trim();
       const text = document.getElementById("recipeText").value.trim();
       const errBox = document.getElementById("errorBox");
       errBox.style.display = "none";
@@ -172,6 +179,7 @@
       const parsed = parseFullRecipe(text);
       if (sName) parsed.source_name = sName;
       if (sUrl) parsed.source_url = sUrl;
+      if (iUrl) parsed.image_url = iUrl;
       if (!parsed.ingredients_text.trim()) { errBox.textContent = "没有识别到食材"; errBox.style.display = "block"; return; }
       if (!parsed.steps_text.trim()) { errBox.textContent = "没有识别到步骤（请用 --- 分隔食材与步骤）"; errBox.style.display = "block"; return; }
       const payload = { title, ...parsed };
@@ -181,7 +189,7 @@
       document.getElementById("previewLink").href = url;
       const ingCount = parsed.ingredients_text.split("\n").filter(l => l.trim() && !l.trim().startsWith("#")).length;
       const stepLines = parsed.steps_text.split("\n").filter(l => l.trim()).length;
-      document.getElementById("previewMeta").textContent = `已识别：${ingCount} 项食材 · ${stepLines} 行步骤`;
+      document.getElementById("previewMeta").textContent = `已识别：${ingCount} 项食材 · ${stepLines} 行步骤${parsed.image_url ? " · 含封面图" : ""}`;
       document.getElementById("resultCard").style.display = "block";
       const history = getHistory();
       history.unshift({ title, url, time: new Date().toLocaleString("zh-CN") });
