@@ -46,7 +46,7 @@ function normalizeImageUrl(raw = "") {
     .trim();
   if (!cleaned) return "";
   if (cleaned.startsWith("//")) return "https:" + cleaned;
-  if (cleaned.startsWith("http://") && /xhscdn\.com|douyinpic\.com|byteimg\.com|snssdk\.com/i.test(cleaned)) {
+  if (cleaned.startsWith("http://") && /xhscdn\.com|douyinpic\.com|byteimg\.com|snssdk\.com|toutiaoimg\.com/i.test(cleaned)) {
     return cleaned.replace(/^http:\/\//i, "https://");
   }
   return /^https?:\/\//i.test(cleaned) ? cleaned : "";
@@ -62,6 +62,39 @@ function pickBestUrl(list) {
   if (!Array.isArray(list) || list.length === 0) return "";
   const jpg = list.find((u) => typeof u === "string" && /\.jpe?g(\?|$)/i.test(u));
   return normalizeImageUrl(jpg || list[0]);
+}
+
+function deepFindCover(obj, depth = 0) {
+  if (!obj || typeof obj !== "object" || depth > 8) return "";
+  if (Array.isArray(obj)) {
+    for (const item of obj) {
+      const found = deepFindCover(item, depth + 1);
+      if (found) return found;
+    }
+    return "";
+  }
+  const priorityKeys = ["origin_cover", "cover", "dynamic_cover", "cover_url", "poster"];
+  for (const k of priorityKeys) {
+    const val = obj[k];
+    if (!val) continue;
+    if (typeof val === "string" && /^https?:\/\//i.test(val)) {
+      return normalizeImageUrl(val);
+    }
+    if (val && Array.isArray(val.url_list) && val.url_list.length > 0) {
+      const u = pickBestUrl(val.url_list);
+      if (u) return u;
+    }
+  }
+  if (Array.isArray(obj.images) && obj.images[0]?.url_list) {
+    const u = pickBestUrl(obj.images[0].url_list);
+    if (u) return u;
+  }
+  for (const k of Object.keys(obj)) {
+    if (k === "avatar_thumb" || k === "avatar_larger" || k === "avatar_medium") continue;
+    const found = deepFindCover(obj[k], depth + 1);
+    if (found) return found;
+  }
+  return "";
 }
 
 async function fetchDouyinCover(pageUrl, dbg) {
@@ -120,29 +153,15 @@ async function fetchDouyinCover(pageUrl, dbg) {
         const data = JSON.parse(routerMatch[1]);
         const loader = data?.loaderData || {};
         dbg.loaderKeys = Object.keys(loader);
-        for (const key of Object.keys(loader)) {
-          const pageObj = loader[key];
-          if (pageObj && pageObj.videoInfoRes) {
-            dbg.itemListLen = Array.isArray(pageObj.videoInfoRes.item_list)
-              ? pageObj.videoInfoRes.item_list.length
-              : 0;
-            dbg.filterListLen = Array.isArray(pageObj.videoInfoRes.filter_list)
-              ? pageObj.videoInfoRes.filter_list.length
-              : 0;
-            dbg.statusCode = pageObj.videoInfoRes.status_code;
-            const item = pageObj.videoInfoRes.item_list?.[0];
-            if (item) {
-              const cover =
-                pickBestUrl(item?.video?.origin_cover?.url_list) ||
-                pickBestUrl(item?.video?.cover?.url_list) ||
-                pickBestUrl(item?.video?.dynamic_cover?.url_list) ||
-                pickBestUrl(item?.images?.[0]?.url_list);
-              if (cover) {
-                dbg.matchedBy = "routerData";
-                return cover;
-              }
-            }
-          }
+        const pageKey = Object.keys(loader).find((k) => k.includes("page")) || Object.keys(loader)[0];
+        if (pageKey && loader[pageKey]) {
+          dbg.pageKeys = Object.keys(loader[pageKey]);
+          dbg.pagePreview = JSON.stringify(loader[pageKey]).slice(0, 400);
+        }
+        const cover = deepFindCover(loader);
+        if (cover) {
+          dbg.matchedBy = "deepRouterData";
+          return cover;
         }
       } catch (e) {
         dbg.jsonParseErr = e?.message || "parse_error";
@@ -150,9 +169,10 @@ async function fetchDouyinCover(pageUrl, dbg) {
     }
 
     const fallbackPatterns = [
+      /<meta[^>]+(?:property|name)=["']og:image["'][^>]+content=["']([^"']+)["']/i,
       /"origin_cover"\s*:\s*\{[^}]*"url_list"\s*:\s*\[\s*"([^"]+)"/i,
       /"cover"\s*:\s*\{[^}]*"url_list"\s*:\s*\[\s*"([^"]+)"/i,
-      /(https?:\\?\/\\?\/p\d+[^"'\s\\<>]*(?:douyinpic|byteimg)\.com[^"'\s<>]+)/i,
+      /(https?:\\?\/\\?\/p\d+[^"'\s\\<>]*(?:douyinpic|byteimg|toutiaoimg)\.com[^"'\s<>]+)/i,
     ];
     for (const re of fallbackPatterns) {
       const m = html.match(re);
@@ -344,7 +364,7 @@ export default async function handler(req, res) {
       rawImageUrl = await fetchCoverImageFromSource(sourceUrl, dbg);
     }
 
-    const needsProxy = /xhscdn\.com|douyinpic\.com|byteimg\.com|snssdk\.com|douyin\.com/i.test(rawImageUrl);
+    const needsProxy = /xhscdn\.com|douyinpic\.com|byteimg\.com|snssdk\.com|toutiaoimg\.com|douyin\.com/i.test(rawImageUrl);
     const finalImageUrl = rawImageUrl
       ? needsProxy
         ? `${proto}://${host}/api/img?u=${encodeURIComponent(rawImageUrl)}`
